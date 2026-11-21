@@ -1,1 +1,245 @@
-placeholder
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b1020">
+<title>Per te</title>
+<style>
+  html,body{margin:0;height:100%;background:#0b1020;overflow:hidden;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+  canvas{display:block;position:fixed;inset:0;width:100%;height:100%}
+  #msg{position:fixed;top:8%;text-align:center;font-family:"Courier New",ui-monospace,monospace;font-weight:700;line-height:1.4;pointer-events:none;white-space:pre}
+  #l1{color:#ffe9a8;text-shadow:0 0 12px rgba(255,200,80,.65)}
+  #l2{color:#ff9fc0;text-shadow:0 0 14px rgba(255,120,170,.75)}
+  #msg div{min-height:1.4em}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="msg"><div id="l1"></div><div id="l2"></div></div>
+<script>
+(() => {
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  const msg = document.getElementById('msg'), l1 = document.getElementById('l1'), l2 = document.getElementById('l2');
+  const W = 34;
+  const LINE1 = 'Buoni 3x3 mesi.', LINE2 = 'Ti amo :)';
+  let H, G, cw, ch, fs, ox, ASP, dpr, flowers, stars, particles = [], start = performance.now(), lastSpawn = 0;
+  const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+  const ease = t => 1 - Math.pow(1 - t, 3);
+
+  function rnd(x, y) {
+    let h = (x * 374761393 + y * 668265263) | 0;
+    h = (h ^ (h >>> 13)) * 1274126177 | 0;
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+  }
+  const bez = (a, b, c, t) => { const u = 1 - t; return u * u * a + 2 * u * t * b + t * t * c; };
+
+  const PAL = {
+    sun:  { petal: ['#ffd21f', '#ffbf00', '#ffe35a'], c1: '#4a2a0c', c2: '#6b3d12' },
+    daisy:{ petal: ['#ffffff', '#f2eeff', '#fff7d6'], c1: '#ffcf33', c2: '#ffb300' },
+    pink: { petal: ['#ff5c9a', '#ff86b4', '#ffb3d1'], c1: '#c2185b', c2: '#e91e78' },
+    purple:{ petal: ['#a66bff', '#c39bff', '#8a4de8'], c1: '#5b21b6', c2: '#7c3aed' },
+    red:  { petal: ['#ff4d4d', '#ff7a7a', '#e03131'], c1: '#8b0000', c2: '#b91c1c' },
+    peach:{ petal: ['#ff9a6b', '#ffb88f', '#ff7e4a'], c1: '#c2410c', c2: '#ea580c' }
+  };
+
+  // [kind, x fraction, y fraction (0=top,1=ground), radius]
+  const SPEC = [
+    ['sun', .50, .20, 6.6],
+    ['sun', .19, .46, 5.2],
+    ['sun', .81, .43, 5.2],
+    ['daisy', .26, .15, 2.9],
+    ['pink', .75, .13, 3.0],
+    ['purple', .08, .25, 2.7],
+    ['red', .92, .26, 2.7],
+    ['peach', .36, .60, 2.8],
+    ['daisy', .64, .62, 2.8],
+    ['pink', .50, .66, 2.4],
+    ['purple', .27, .80, 2.2],
+    ['red', .73, .82, 2.2]
+  ];
+
+  function setup() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const vw = innerWidth, vh = innerHeight;
+    cv.width = vw * dpr; cv.height = vh * dpr;
+    const stageW = Math.min(vw, vh * 0.56);
+    ox = (vw - stageW) / 2;
+    cw = stageW / W; fs = cw / 0.6; ch = fs * 1.1; ASP = ch / cw;
+    H = Math.floor(vh / ch);
+    G = H - 4;
+    msg.style.left = ox + 'px'; msg.style.width = stageW + 'px';
+    msg.style.fontSize = Math.min(stageW * 0.082, 40) + 'px';
+
+    const T = H * 0.30, span = G - T - 3;
+    flowers = SPEC.map((s, i) => {
+      const f = { i, kind: s[0], x: Math.round(s[1] * W), y: Math.round(T + s[2] * span), r: s[3] };
+      f.delay = 0.3 + i * 0.42;
+      f.stemDur = 2.0 + (G - f.y) / H * 1.6;
+      f.bloomDur = 1.5;
+      f.pal = PAL[f.kind];
+      makeStem(f);
+      return f;
+    });
+    // draw big flowers first (back), small ones on top
+    flowers.sort((a, b) => b.r - a.r);
+
+    stars = [];
+    for (let i = 0; i < 28; i++) stars.push({ x: rnd(i, 1) * W, y: rnd(i, 2) * H * 0.55, p: rnd(i, 3) * 6 });
+  }
+
+  function makeStem(f) {
+    const bx = Math.round(W / 2 + (f.x - W / 2) * 0.2 + (rnd(f.i, 3) - 0.5) * 3), by = G;
+    const cx = bx + (f.x - bx) * 0.12, cy = f.y + (by - f.y) * 0.55;
+    const cells = []; let lx = null, ly = null;
+    for (let i = 0; i <= 240; i++) {
+      const t = i / 240;
+      const x = Math.round(bez(bx, cx, f.x, t)), y = Math.round(bez(by, cy, f.y, t));
+      if (x !== lx || y !== ly) { cells.push({ x, y, t }); lx = x; ly = y; }
+    }
+    for (let i = 0; i < cells.length; i++) {
+      const a = cells[Math.max(0, i - 1)], b = cells[Math.min(cells.length - 1, i + 1)];
+      const dx = b.x - a.x;
+      cells[i].c = dx === 0 ? '|' : dx > 0 ? '/' : '\\';
+      cells[i].col = ['#3fa34d', '#58c26a', '#2f8a43'][Math.floor(rnd(cells[i].x, cells[i].y) * 3)];
+    }
+    f.cells = cells;
+    f.leaves = [0.32, 0.58].map((t, k) => {
+      const c = cells[Math.floor(t * (cells.length - 1))];
+      return { x: c.x, y: c.y, t, side: ((f.i + k) % 2 ? 1 : -1) };
+    });
+  }
+
+  let grid;
+  const put = (x, y, c, col) => { if (x >= 0 && x < W && y >= 0 && y < H) grid[y * W + x] = { c, col }; };
+
+  function drawGround(time) {
+    const reveal = clamp(time / 1.3) * (W / 2 + 1);
+    for (let x = 0; x < W; x++) {
+      if (Math.abs(x - W / 2 + 0.5) > reveal) continue;
+      const h = rnd(x, G);
+      put(x, G, h < .5 ? '"' : h < .8 ? "'" : ',', ['#3fa34d', '#58c26a', '#2f8a43'][Math.floor(h * 3)]);
+      if (h > .72) put(x, G - 1, h > .9 ? '|' : '^', '#58c26a');
+      for (let y = G + 1; y < H; y++) {
+        const k = rnd(x, y);
+        put(x, y, k < .3 ? ':' : k < .55 ? ';' : k < .8 ? '.' : ',', k < .5 ? '#6b4423' : '#8a5a2d');
+      }
+    }
+  }
+
+  function drawStem(f, time) {
+    const g = clamp((time - f.delay) / f.stemDur);
+    if (g <= 0) return;
+    for (const c of f.cells) if (c.t <= g) put(c.x, c.y, c.c, c.col);
+    for (const l of f.leaves) {
+      if (l.t > g) continue;
+      const s = l.side;
+      put(l.x + s, l.y, '~', '#4cb85d');
+      put(l.x + 2 * s, l.y - 1, '~', '#58c26a');
+      put(l.x + 3 * s, l.y - 1, s > 0 ? '>' : '<', '#3fa34d');
+    }
+  }
+
+  function drawFlower(f, time) {
+    const stemDone = f.delay + f.stemDur * 0.9;
+    const b = ease(clamp((time - stemDone) / f.bloomDur));
+    const g = clamp((time - f.delay) / f.stemDur);
+    if (g < 1 && b === 0) { if (g > 0.95) put(f.x, f.y, 'o', '#58c26a'); return; }
+    const R = f.r * b;
+    if (R < 0.8) { put(f.x, f.y, 'o', '#58c26a'); return; }
+    const ry = Math.ceil(R / ASP) + 1, rx = Math.ceil(R) + 1, rot = time * 0.35 + f.i;
+    const P = f.pal;
+    for (let dy = -ry; dy <= ry; dy++) for (let dx = -rx; dx <= rx; dx++) {
+      const vx = dx, vy = dy * ASP, d = Math.hypot(vx, vy), a = Math.atan2(vy, vx);
+      const X = f.x + dx, Y = f.y + dy, h = rnd(X, Y);
+      const pc = P.petal[Math.floor(h * 3) % 3];
+      if (f.kind === 'sun') {
+        const pr = R * (0.8 + 0.2 * Math.abs(Math.cos(a * 7 + rot))), cr = R * 0.52;
+        if (d <= cr) put(X, Y, d < cr * 0.5 ? '@' : (h < .5 ? '%' : '&'), d < cr * 0.5 ? P.c1 : P.c2);
+        else if (d <= pr) put(X, Y, d > pr - 1.1 ? '*' : '#', pc);
+      } else if (f.kind === 'daisy') {
+        const pr = R * (0.85 + 0.15 * Math.cos(a * 5 + rot)), cr = R * 0.34;
+        if (d <= cr) put(X, Y, '@', P.c1);
+        else if (d <= pr) put(X, Y, h < .6 ? '*' : 'o', pc);
+      } else {
+        const pr = R * (0.9 + 0.1 * Math.cos(a * 3 + rot));
+        if (d <= R * 0.3) put(X, Y, '@', P.c1);
+        else if (d <= R * 0.65) put(X, Y, '%', P.c2);
+        else if (d <= pr) put(X, Y, h < .5 ? '&' : '8', pc);
+      }
+    }
+  }
+
+  function drawStars(time) {
+    ctx.textBaseline = 'top';
+    for (const s of stars) {
+      const a = 0.25 + 0.35 * Math.abs(Math.sin(time * 1.3 + s.p));
+      ctx.globalAlpha = a; ctx.fillStyle = '#cfd8ff';
+      ctx.fillText(s.p > 3 ? '+' : '.', ox + s.x * cw, s.y * ch);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function spawn(time) {
+    const f = flowers[Math.floor(Math.random() * flowers.length)];
+    const hearts = Math.random() < 0.45;
+    particles.push({
+      x: f.x + (Math.random() - .5) * 4, y: f.y, vx: (Math.random() - .5) * 0.5, vy: -(0.5 + Math.random() * 0.9),
+      ch: hearts ? '<3' : (Math.random() < .5 ? '*' : '.'),
+      col: hearts ? '#ff7aa8' : '#ffe27a', life: 0, max: 3 + Math.random() * 2.5
+    });
+  }
+
+  function frame(now) {
+    const time = (now - start) / 1000;
+    const bg = ctx.createLinearGradient(0, 0, 0, cv.height);
+    bg.addColorStop(0, '#0b1020'); bg.addColorStop(0.7, '#1b1233'); bg.addColorStop(1, '#2a1a2e');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.font = `bold ${fs}px "Courier New",ui-monospace,monospace`;
+    drawStars(time);
+
+    grid = new Array(W * H).fill(null);
+    drawGround(time);
+    for (const f of flowers) drawStem(f, time);
+    for (const f of flowers) drawFlower(f, time);
+    ctx.textBaseline = 'top';
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const cell = grid[y * W + x];
+      if (!cell) continue;
+      ctx.fillStyle = cell.col;
+      ctx.fillText(cell.c, ox + x * cw, y * ch);
+    }
+
+    // floating hearts/sparkles once the bouquet is complete
+    const bloomEnd = flowers.reduce((m, f) => Math.max(m, f.delay + f.stemDur * 0.9 + f.bloomDur), 0);
+    if (time > bloomEnd - 1 && time - lastSpawn > 0.35) { lastSpawn = time; spawn(time); }
+    const dt = 1 / 60;
+    particles = particles.filter(p => p.life < p.max);
+    for (const p of particles) {
+      p.life += dt; p.x += p.vx * dt; p.y += p.vy * dt;
+      ctx.globalAlpha = clamp(1 - p.life / p.max) * 0.9; ctx.fillStyle = p.col;
+      ctx.fillText(p.ch, ox + p.x * cw, p.y * ch);
+    }
+    ctx.globalAlpha = 1;
+
+    // message typing
+    const mt = time - (bloomEnd - 0.5);
+    if (mt > 0) {
+      const n = Math.floor(mt * 11), a = LINE1.length;
+      l1.textContent = LINE1.slice(0, Math.min(n, a));
+      l2.textContent = n > a + 6 ? LINE2.slice(0, n - a - 6) : '';
+    } else { l1.textContent = ''; l2.textContent = ''; }
+
+    requestAnimationFrame(frame);
+  }
+
+  addEventListener('resize', setup);
+  addEventListener('pointerdown', () => { start = performance.now(); particles = []; lastSpawn = 0; });
+  setup();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
